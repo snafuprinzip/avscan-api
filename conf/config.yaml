@@ -1,0 +1,27 @@
+global:
+  name: AvScanAPI
+  title: 'AvScan API'
+  environment: 'test'
+  url: avscan-api-test.example.com
+  team: 'Application Hosting and Operations'
+
+server:
+  listen: 0.0.0.0
+  port: 8080
+  logdir: ./log/
+  logsizemb: 2
+  access:
+    - 127.0.0.1/32
+    - 10.0.0.0/8
+    - 127.0.0.6/32
+
+passthrough:
+  appid:
+    - passthrough-test
+
+scanner:
+  name: 'ClamAV'
+  remote_scan: true
+  maxmb: 100
+  uploaddir: ./upload
+  configpath: './conf/clamd.conf'
