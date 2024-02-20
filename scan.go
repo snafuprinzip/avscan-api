@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const alphanum = `^[a-zA-Z0-9]*$`
@@ -83,13 +85,27 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 	result.CorrelationID = corid
 
 	// Maximum upload of MaxMB files
-	r.ParseMultipartForm(Config.Scanner.MaxMB << 20)
+	r.Body = http.MaxBytesReader(w, r.Body, Config.Scanner.MaxMB*1024*1024)
+	//	r.ParseMultipartForm(Config.Scanner.MaxMB << 20)
 
 	// Get handler for filename, size and headers
 	file, handler, err := r.FormFile("file")
 	if err != nil {
-		logf("crit", "scan", http.StatusInternalServerError, "Error retrieving file: %s", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		errstr := fmt.Sprintf("%s", err)
+		if strings.Contains(errstr, "http: request body too large") {
+			logf("warn", "scan", 413, "Upload too large: %s", err)
+			result.Message = fmt.Sprintf("Upload size too large: %s", err)
+			result.HTTPStatus = 413
+			w.WriteHeader(result.HTTPStatus)
+			w.Write([]byte(result.JSONIndent()))
+		} else {
+			fmt.Println(err, errstr)
+			logf("crit", "scan", http.StatusInternalServerError, "Error retrieving file: %s", err)
+			result.Message = fmt.Sprintf("Error retrieving file: %s", err)
+			result.HTTPStatus = http.StatusInternalServerError
+			w.WriteHeader(result.HTTPStatus)
+			w.Write([]byte(result.JSONIndent()))
+		}
 		return
 	}
 	defer file.Close()
@@ -115,7 +131,6 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	defer dst.Close()
 
 	// Copy the uploaded file to the filesystem at the specified destination
@@ -129,23 +144,26 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 	// scan the uploaded file for viruses
 	var cmd *exec.Cmd
 
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
 	if Config.Scanner.RemoteScan {
-		cmd = exec.Command("clamdscan", "-c", Config.Scanner.Configpath, "--stream", destpath)
+		cmd = exec.CommandContext(ctx, "clamdscan", "-c", Config.Scanner.Configpath, "--stream", destpath)
 	} else {
-		cmd = exec.Command("clamscan", destpath)
+		cmd = exec.CommandContext(ctx, "clamscan", destpath)
 	}
 
 	out, err := cmd.CombinedOutput()
+	result.ExitCode = cmd.ProcessState.ExitCode()
 	if err != nil {
 		if cmd.ProcessState.ExitCode() > 1 { // ignore virus found message and show only errors
 			logf("crit", "POST", http.StatusInternalServerError, "Error executing scan: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Printf("%s\n", out)
 		}
 	}
 
 	// sort command output into result fields
 	outputlines := strings.Split(string(out), "\n")
-	//	fmt.Println(len(outputlines), ": ", outputlines)
 
 	for _, line := range outputlines {
 		switch {
@@ -164,7 +182,6 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result.ExitCode = cmd.ProcessState.ExitCode()
 	switch result.ExitCode {
 	case 0:
 		_, msg, _ := strings.Cut(outputlines[0], ":")

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -37,11 +39,15 @@ func main() {
 	}
 
 	// set version by executing clamscan --version command in shell
-	cmd := exec.Command("clamscan", "--version")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "clamscan", "--version")
 	out, err := cmd.Output()
 	if err != nil {
 		logf("crit", "start", http.StatusOK, "Unable to set version string: %s", err)
 	}
+
 	Config.Global.Version = fmt.Sprintf("%s (%s)\n", version, strings.TrimSuffix(string(out), "\n"))
 
 	logf("info", "start", http.StatusOK, "Starting AVScan API")

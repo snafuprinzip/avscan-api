@@ -4,6 +4,8 @@ global:
   environment: 'test'
   url: avscan-api-test.example.com
   team: 'Application Hosting and Operations'
+  maintainer: "SL XX - Team AHO"
+  email: aho@example.com
 
 server:
   listen: 0.0.0.0
@@ -22,6 +24,6 @@ passthrough:
 scanner:
   name: 'ClamAV'
   remote_scan: true
-  maxmb: 100
+  maxmb: 250
   uploaddir: ./upload
   configpath: './conf/clamd.conf'
